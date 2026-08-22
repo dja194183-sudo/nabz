@@ -18,3 +18,7 @@ Core files for review:
 - `src/lib/store.ts` — local persist + vault id
 
 Not investment advice.
+
+## هاست ایران
+
+بدون VPN: ببین [HOST-IRAN.md](HOST-IRAN.md) — Liara.
