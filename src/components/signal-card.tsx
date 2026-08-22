@@ -1,7 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { CandleChart } from "@/components/candle-chart";
 import { PipelineStrip } from "@/components/pipeline-strip";
 import { ExitBanner, StretchBanner } from "@/components/status-banner";
 import { Sparkline } from "@/components/sparkline";
@@ -76,17 +75,7 @@ export function SignalCard({
           </p>
         </div>
         <div className="flex items-center gap-1">
-          {signal.candles && signal.candles.length >= 8 ? (
-            <div className="w-[108px] overflow-hidden rounded-md">
-              <CandleChart
-                candles={signal.candles.slice(-40)}
-                height={44}
-                compact
-              />
-            </div>
-          ) : (
-            <Sparkline values={signal.spark} up={up} />
-          )}
+          <Sparkline values={signal.spark} up={up} />
           <button
             type="button"
             aria-label={watched ? "حذف از واچ‌لیست" : "افزودن به واچ‌لیست"}
@@ -99,16 +88,6 @@ export function SignalCard({
           </button>
         </div>
       </div>
-
-      {!compact && signal.candles && signal.candles.length >= 8 ? (
-        <div className="mt-3 overflow-hidden rounded-xl bg-card">
-          <CandleChart
-            candles={signal.candles}
-            height={128}
-            compact
-          />
-        </div>
-      ) : null}
 
       <div className="mt-3">
         <PipelineStrip pipeline={signal.pipeline} compact />

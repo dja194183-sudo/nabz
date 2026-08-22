@@ -1,4 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Vazirmatn:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -19,8 +18,8 @@
   --color-short: #c45c5c;
   --color-short-foreground: #1a0b0b;
 
-  --font-sans: "Vazirmatn", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: "Vazirmatn", "Segoe UI", Tahoma, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 
   --radius-sm: 8px;
   --radius-md: 12px;

@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { localDeskReply } from "../desk-local";
-import { getPairDetail } from "./market";
+import { pairLiveSignal } from "./market";
 import type { MarketKind, Mode } from "../types";
 
 type Msg = { role: "user" | "assistant"; content: string };
@@ -60,12 +60,10 @@ export const deskChat = createServerFn({ method: "POST" })
     const live = await Promise.all(
       want.map(async (symbol) => {
         try {
-          const detail = await getPairDetail({
-            data: {
-              symbol,
-              mode: data.mode as Mode,
-              market: data.market as MarketKind,
-            },
+          const detail = await pairLiveSignal({
+            symbol,
+            mode: data.mode as Mode,
+            market: data.market as MarketKind,
           });
           return [
             `${detail.base}: قیمت ${detail.price} مارک ${detail.markPrice ?? "—"}`,

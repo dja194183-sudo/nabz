@@ -200,19 +200,24 @@ export async function fetchKlines(
   limit: number,
   force = false,
 ): Promise<Candle[]> {
-  const key = `${symbol}|${interval}|${limit}`;
+  const need = Math.max(1, Math.min(Math.floor(limit) || 1, 1000));
+  const key = `${symbol}|${interval}`;
   const hit = klineCache.get(key);
   const ttl = KLINE_TTL[interval] ?? 40_000;
-  if (!force && hit && Date.now() - hit.at < ttl) return hit.rows;
+  const fresh = Boolean(hit && Date.now() - hit.at < ttl);
+  if (!force && fresh && hit && hit.rows.length >= need) {
+    return hit.rows.slice(-need);
+  }
   try {
     const raw = await toobit<unknown>(
-      `/quote/v1/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`,
+      `/quote/v1/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${need}`,
     );
     const rows = parseKlines(raw).sort((a, b) => a.t - b.t);
-    klineCache.set(key, { at: Date.now(), rows });
-    return rows;
+    const keep = !hit || rows.length >= hit.rows.length || !fresh ? rows : hit.rows;
+    klineCache.set(key, { at: Date.now(), rows: keep });
+    return keep.slice(-need);
   } catch {
-    if (hit) return hit.rows;
+    if (hit) return hit.rows.slice(-need);
     return [];
   }
 }

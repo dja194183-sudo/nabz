@@ -200,7 +200,6 @@ export const useAppStore = create<AppState>()(
         },
         watchlist: state.watchlist,
         journal: state.journal,
-        chat: state.chat,
         wrFilter: state.wrFilter,
         vaultId: state.vaultId,
         lastScan: state.lastScan,

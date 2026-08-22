@@ -1,3 +1,7 @@
+# NABZ v1.21
+
+NABZ v1.21 (optimized). Frozen v1.17: https://github.com/dja194183-sudo/nabz/releases/tag/v1.17-saved
+
 # NABZ v1.17
 
 Toobit USDT-M futures signal PWA (4H → 1H → 15M → 5M). Persian RTL.

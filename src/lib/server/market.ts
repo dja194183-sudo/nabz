@@ -23,12 +23,14 @@ import {
   isFuturesSymbol,
   isSpotSymbol,
   mapPool,
+  FUTURES_FEES,
+  SPOT_FEES,
   type Ticker,
 } from "./toobit";
 
 const BATCH = 12;
 const DONE_TTL = 50_000;
-const JOB_KEY = "v12";
+const JOB_KEY = "v21";
 
 type Job = {
   tickers: Ticker[];
@@ -71,13 +73,13 @@ function snapshot(
 
 async function scoreBatch(job: Job, market: MarketKind, mode: Mode) {
   const slice = job.tickers.slice(job.index, job.index + BATCH);
+  const fees = market === "spot" ? SPOT_FEES : FUTURES_FEES;
   const built = await mapPool(slice, 8, async (t) => {
     try {
-      const [h4, h1, m15, spec] = await Promise.all([
+      const [h4, h1, m15] = await Promise.all([
         fetchKlines(t.symbol, "4h", 90),
         fetchKlines(t.symbol, "1h", 160),
-        fetchKlines(t.symbol, "15m", 200),
-        fetchContractSpec(t.symbol, market),
+        fetchKlines(t.symbol, "15m", 220),
       ]);
       const signal = buildSignal({
         symbol: t.symbol,
@@ -90,9 +92,9 @@ async function scoreBatch(job: Job, market: MarketKind, mode: Mode) {
         m15,
         funding: job.funding.get(t.symbol) ?? null,
         mode,
-        maxLeverage: spec.maxLeverage,
-        makerBps: spec.makerBps,
-        takerBps: spec.takerBps,
+        maxLeverage: fees.maxLeverage,
+        makerBps: fees.makerBps,
+        takerBps: fees.takerBps,
       });
       if (!signal) return null;
       return stabilizeSignal(signal, mode);
@@ -151,6 +153,43 @@ export const scanMarket = createServerFn({ method: "POST" })
     if (!job.done) await scoreBatch(job, data.market, data.mode);
     return snapshot(job, data);
   });
+
+export async function pairLiveSignal(opts: {
+  symbol: string;
+  mode: Mode;
+  market: MarketKind;
+}) {
+  const futures = opts.market === "futures";
+  const [h4, h1, m15, funding, mark] = await Promise.all([
+    fetchKlines(opts.symbol, "4h", 90),
+    fetchKlines(opts.symbol, "1h", 160),
+    fetchKlines(opts.symbol, "15m", 220),
+    futures
+      ? fetchFundingOne(opts.symbol)
+      : Promise.resolve({ rate: null as number | null, next: null as number | null }),
+    futures ? fetchMark(opts.symbol) : Promise.resolve(null),
+  ]);
+  const last = m15[m15.length - 1];
+  const fees = futures ? FUTURES_FEES : SPOT_FEES;
+  const signal = buildSignal({
+    symbol: opts.symbol,
+    market: opts.market,
+    price: mark ?? last?.c ?? 0,
+    change24h: 0,
+    volume24h: 0,
+    h4,
+    h1,
+    m15,
+    funding: funding.rate,
+    mode: opts.mode,
+    maxLeverage: fees.maxLeverage,
+    makerBps: fees.makerBps,
+    takerBps: fees.takerBps,
+  });
+  if (!signal) throw new Error("داده کافی برای این نماد نیست");
+  const held = stabilizeSignal(signal, opts.mode);
+  return { ...held, markPrice: mark };
+}
 
 export const getPairDetail = createServerFn({ method: "POST" })
   .validator((input: {

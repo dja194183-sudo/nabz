@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { useRef } from "react";
 import { RefreshCw } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { SignalCard } from "@/components/signal-card";
@@ -30,8 +31,25 @@ function Home() {
   const setups = all.filter((s) => s.tier === "setup");
   const wrOk = (s: Signal) =>
     !wrFilter || s.backtest.n < 6 || s.backtest.winRate >= minWinRate;
-  const ready = setups.filter((s) => s.entryState === "ready" && wrOk(s));
-  const waiting = setups.filter((s) => s.entryState !== "ready" && wrOk(s));
+  const readyRaw = setups.filter((s) => s.entryState === "ready" && wrOk(s));
+  const waitingRaw = setups.filter((s) => s.entryState !== "ready" && wrOk(s));
+  const orderKey = `${market}:${mode}`;
+  const seen = useRef({ key: orderKey, ready: [] as string[], wait: [] as string[] });
+  if (seen.current.key !== orderKey) {
+    seen.current = { key: orderKey, ready: [], wait: [] };
+  }
+  function lock(list: Signal[], bucket: "ready" | "wait") {
+    const slot = bucket === "ready" ? seen.current.ready : seen.current.wait;
+    for (const s of list) {
+      if (!slot.includes(s.symbol)) slot.push(s.symbol);
+    }
+    if (scan.data?.done) return list;
+    return [...list].sort(
+      (a, b) => slot.indexOf(a.symbol) - slot.indexOf(b.symbol),
+    );
+  }
+  const ready = lock(readyRaw, "ready");
+  const waiting = lock(waitingRaw, "wait");
   const watchNear = all.filter(
     (s) => s.tier === "watch" && watchlist.includes(s.symbol),
   );
