@@ -43,9 +43,9 @@ export function useScan(opts?: { enabled?: boolean }) {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") {
         return false;
       }
-      return q.state.data?.done ? 90_000 : 8_000;
+      return q.state.data?.done ? 90_000 : 1_400;
     },
-    staleTime: 60_000,
+    staleTime: 800,
     retry: 0,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,

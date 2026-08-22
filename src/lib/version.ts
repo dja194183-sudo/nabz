@@ -1,2 +1,2 @@
 export const APP_NAME = "NABZ";
-export const APP_VERSION = "1.21";
+export const APP_VERSION = "1.22";

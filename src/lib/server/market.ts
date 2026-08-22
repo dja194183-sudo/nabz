@@ -28,9 +28,11 @@ import {
   type Ticker,
 } from "./toobit";
 
-const BATCH = 12;
+const BATCH = 16;
 const DONE_TTL = 50_000;
-const JOB_KEY = "v21";
+const JOB_KEY = "v22";
+const SCAN_BUDGET_MS = 3200;
+const SCAN_BATCHES_PER_TICK = 4;
 
 type Job = {
   tickers: Ticker[];
@@ -74,12 +76,12 @@ function snapshot(
 async function scoreBatch(job: Job, market: MarketKind, mode: Mode) {
   const slice = job.tickers.slice(job.index, job.index + BATCH);
   const fees = market === "spot" ? SPOT_FEES : FUTURES_FEES;
-  const built = await mapPool(slice, 8, async (t) => {
+  const built = await mapPool(slice, 10, async (t) => {
     try {
       const [h4, h1, m15] = await Promise.all([
-        fetchKlines(t.symbol, "4h", 90),
-        fetchKlines(t.symbol, "1h", 160),
-        fetchKlines(t.symbol, "15m", 220),
+        fetchKlines(t.symbol, "4h", 80),
+        fetchKlines(t.symbol, "1h", 120),
+        fetchKlines(t.symbol, "15m", 160),
       ]);
       const signal = buildSignal({
         symbol: t.symbol,
@@ -150,7 +152,14 @@ export const scanMarket = createServerFn({ method: "POST" })
       };
       jobs.set(key, job);
     }
-    if (!job.done) await scoreBatch(job, data.market, data.mode);
+    if (!job.done) {
+      const until = Date.now() + SCAN_BUDGET_MS;
+      let ticks = 0;
+      while (!job.done && Date.now() < until && ticks < SCAN_BATCHES_PER_TICK) {
+        await scoreBatch(job, data.market, data.mode);
+        ticks += 1;
+      }
+    }
     return snapshot(job, data);
   });
 
