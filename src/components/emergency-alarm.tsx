@@ -1,14 +1,13 @@
 import { Link } from "@tanstack/react-router";
 import { exitForFlippedSide } from "@/lib/risk";
 import { useAppStore } from "@/lib/store";
-import { useScan } from "@/lib/use-scan";
 
 export function EmergencyAlarm() {
   const journal = useAppStore((s) => s.journal);
+  const lastScan = useAppStore((s) => s.lastScan);
   const open = journal.filter((t) => !t.closedAt);
-  const scan = useScan({ enabled: open.length > 0 });
   if (open.length === 0) return null;
-  const bySymbol = new Map(scan.data?.signals.map((s) => [s.symbol, s]) ?? []);
+  const bySymbol = new Map(lastScan?.signals.map((s) => [s.symbol, s]) ?? []);
   const hits = open.flatMap((t) => {
     const sig = bySymbol.get(t.symbol);
     const flipped = sig ? exitForFlippedSide(t.side, sig.side) : null;

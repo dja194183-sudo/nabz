@@ -52,7 +52,7 @@ function MarketPage() {
             onChange={(e) => setQ(e.target.value)}
             placeholder="جستجوی نماد"
             dir="rtl"
-            className="h-12 w-full rounded-xl bg-card ps-10 pe-4 text-[15px] shadow-[0_0_0_1px_rgba(255,255,255,0.08)] outline-none placeholder:text-subtle focus:shadow-[0_0_0_1px_rgba(255,255,255,0.18)]"
+            className="h-12 w-full rounded-xl bg-card ps-10 pe-4 text-[16px] shadow-[0_0_0_1px_rgba(255,255,255,0.08)] outline-none placeholder:text-subtle focus:shadow-[0_0_0_1px_rgba(255,255,255,0.18)]"
           />
         </label>
       </header>

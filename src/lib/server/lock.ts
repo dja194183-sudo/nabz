@@ -24,17 +24,26 @@ function stopHit(side: Side, sl: number, live: number) {
   return side === "long" ? live <= sl : live >= sl;
 }
 
-export function trailStop(side: Side, lockedSl: number, freshSl: number, live: number) {
+export function trailStop(
+  side: Side,
+  lockedSl: number,
+  freshSl: number,
+  live: number,
+  atr = 0,
+) {
+  const gap = Math.max(Math.abs(live) * 0.001, (atr || Math.abs(live) * 0.01) * 0.25);
   if (side === "long") {
     const sl = Math.max(lockedSl, freshSl);
-    return Math.min(sl, live);
+    if (sl >= live - gap) return lockedSl;
+    return sl;
   }
   const sl = Math.min(lockedSl, freshSl);
-  return Math.max(sl, live);
+  if (sl <= live + gap) return lockedSl;
+  return sl;
 }
 
 function withSlot(signal: Signal, slot: Slot, live: number, freshSl: number): Signal {
-  const sl = trailStop(slot.side, slot.sl, freshSl, live);
+  const sl = trailStop(slot.side, slot.sl, freshSl, live, slot.atr);
   slot.sl = sl;
   const dist = describeEntry(slot.side, slot.entry, live, slot.atr || signal.atr);
   const heldAgainst =

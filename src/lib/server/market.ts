@@ -28,6 +28,7 @@ import {
 
 const BATCH = 12;
 const DONE_TTL = 50_000;
+const JOB_KEY = "v12";
 
 type Job = {
   tickers: Ticker[];
@@ -68,11 +69,7 @@ function snapshot(
   };
 }
 
-async function scoreBatch(
-  job: Job,
-  market: MarketKind,
-  mode: Mode,
-) {
+async function scoreBatch(job: Job, market: MarketKind, mode: Mode) {
   const slice = job.tickers.slice(job.index, job.index + BATCH);
   const built = await mapPool(slice, 8, async (t) => {
     try {
@@ -128,13 +125,9 @@ export const scanMarket = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data }): Promise<ScanResult> => {
-    const key = `${data.market}:${data.mode}:v10`;
+    const key = `${data.market}:${data.mode}:${JOB_KEY}`;
     let job = jobs.get(key);
-    if (
-      job?.done &&
-      !data.force &&
-      Date.now() - job.finishedAt < DONE_TTL
-    ) {
+    if (job?.done && !data.force && Date.now() - job.finishedAt < DONE_TTL) {
       return snapshot(job, data);
     }
     if (data.force || !job || (job.done && Date.now() - job.finishedAt >= DONE_TTL)) {
@@ -166,6 +159,7 @@ export const getPairDetail = createServerFn({ method: "POST" })
     mode?: Mode;
     market?: MarketKind;
     force?: boolean;
+    deep?: boolean;
   }) => {
     const symbol = String(input?.symbol ?? "").toUpperCase();
     const market: MarketKind = isMarket(input?.market)
@@ -185,30 +179,35 @@ export const getPairDetail = createServerFn({ method: "POST" })
       mode: isMode(input?.mode) ? input.mode : "strict",
       market,
       force: Boolean(input?.force),
+      deep: Boolean(input?.deep),
     };
   })
   .handler(async ({ data }): Promise<PairDetail> => {
     const futures = data.market === "futures";
-    const [tickers, h4, h1, m15, m5, funding, mark, oi, ls, spec] = await Promise.all([
-      fetchTickers(data.market),
-      fetchKlines(data.symbol, "4h", 90, data.force),
-      fetchKlines(data.symbol, "1h", 160, data.force),
-      fetchKlines(data.symbol, "15m", 200, data.force),
-      fetchKlines(data.symbol, "5m", 180, data.force),
-      futures ? fetchFundingOne(data.symbol) : Promise.resolve({ rate: null, next: null }),
+    const deep = data.deep;
+    const [h4, h1, m15, m5, funding, mark, spec, extra] = await Promise.all([
+      fetchKlines(data.symbol, "4h", deep ? 180 : 90, data.force),
+      fetchKlines(data.symbol, "1h", deep ? 300 : 160, data.force),
+      fetchKlines(data.symbol, "15m", deep ? 720 : 220, data.force),
+      fetchKlines(data.symbol, "5m", deep ? 240 : 90, data.force),
+      futures
+        ? fetchFundingOne(data.symbol)
+        : Promise.resolve({ rate: null as number | null, next: null as number | null }),
       futures ? fetchMark(data.symbol) : Promise.resolve(null),
-      futures ? fetchOi(data.symbol) : Promise.resolve(null),
-      futures ? fetchLongShort(data.symbol) : Promise.resolve(null),
       fetchContractSpec(data.symbol, data.market),
+      deep && futures
+        ? Promise.all([fetchOi(data.symbol), fetchLongShort(data.symbol)])
+        : Promise.resolve([null, null] as [number | null, Awaited<ReturnType<typeof fetchLongShort>>]),
     ]);
-    const t = tickers.find((x) => x.symbol === data.symbol);
     const last = m15[m15.length - 1];
+    const oi = extra[0];
+    const ls = extra[1];
     const signal = buildSignal({
       symbol: data.symbol,
       market: data.market,
-      price: t?.price ?? last?.c ?? 0,
-      change24h: t?.change24h ?? 0,
-      volume24h: t?.volume24h ?? 0,
+      price: mark ?? last?.c ?? 0,
+      change24h: 0,
+      volume24h: 0,
       h4,
       h1,
       m15,
@@ -222,10 +221,9 @@ export const getPairDetail = createServerFn({ method: "POST" })
     if (!signal) throw new Error("داده کافی برای این نماد نیست");
     const held = stabilizeSignal(signal, data.mode);
     const pack = (rows: typeof m15) => chartSeries(rows, 120);
-    const c15 = pack(m15);
     const charts: PairDetail["charts"] = {
       "5m": pack(m5),
-      "15m": c15,
+      "15m": pack(m15),
       "1h": pack(h1),
       "4h": pack(h4),
     };
@@ -258,16 +256,33 @@ export const getTickersLite = createServerFn({ method: "GET" }).handler(
   },
 );
 
+export const getMarkPrices = createServerFn({ method: "POST" })
+  .validator((input: { symbols?: string[] }) => ({
+    symbols: [
+      ...new Set(
+        (Array.isArray(input?.symbols) ? input.symbols : []).map((s) => String(s)),
+      ),
+    ].slice(0, 12),
+  }))
+  .handler(async ({ data }) => {
+    const rows = await mapPool(data.symbols, 4, async (symbol) => {
+      if (!symbol.includes("-SWAP-")) return { symbol, mark: null as number | null };
+      const mark = await fetchMark(symbol);
+      return { symbol, mark };
+    });
+    return rows;
+  });
+
 export function getScanBrief(market: MarketKind, mode: Mode) {
-  const job = jobs.get(`${market}:${mode}:v10`);
-  if (!job) return "اسکن هنوز در حافظه سرور نیست.";
+  const job = jobs.get(`${market}:${mode}:${JOB_KEY}`);
+  if (!job) return "SCAN_COMPLETE=false\nSCANNED=0/0\nاسکن هنوز در حافظه سرور نیست.";
   const setups = [...job.signals.values()]
     .filter((s) => s.tier === "setup")
     .sort(preferSetup)
     .slice(0, 10)
     .map(
       (s) =>
-        `${s.base} ${s.side} score ${s.score} ${s.entryState} lev≤${s.maxLeverage}x taker ${s.takerBps}bps entry ${s.entry} sl ${s.sl}`,
+        `${s.base} ${s.side} score ${s.score} ${s.entryState} lev≤${s.maxLeverage ?? "?"}x taker ${s.takerBps}bps entry ${s.entry} sl ${s.sl}`,
     );
-  return `اسکن ${job.index}/${job.tickers.length} ${job.done ? "تمام" : "ادامه"} · ستاپ‌ها: ${setups.join(" | ") || "هیچ"}`;
+  return `SCAN_COMPLETE=${job.done}\nSCANNED=${job.index}/${job.tickers.length}\nستاپ‌ها: ${setups.join(" | ") || "هیچ"}`;
 }

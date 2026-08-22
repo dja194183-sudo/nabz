@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
@@ -14,14 +14,14 @@ import {
   fmtPrice,
   fmtUsd,
   qtyFromUsdt,
+  qtyFromMargin,
   roundTripFee,
   resolveSymbol,
   sideLabel,
 } from "@/lib/format";
 import { alertForOpenTrade } from "@/lib/risk";
-import { getPairDetail, getTickersLite } from "@/lib/server/market";
+import { getMarkPrices, getTickersLite } from "@/lib/server/market";
 import { useAppStore } from "@/lib/store";
-import { useScan } from "@/lib/use-scan";
 import type { MarketKind, PaperTrade, Side, Signal } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -34,16 +34,30 @@ function JournalPage() {
   const journal = useAppStore((s) => s.journal);
   const closeTrade = useAppStore((s) => s.closeTrade);
   const removeTrade = useAppStore((s) => s.removeTrade);
+  const updateTrade = useAppStore((s) => s.updateTrade);
   const settings = useAppStore((s) => s.settings);
+  const [editId, setEditId] = useState<string | null>(null);
   const prices = useQuery({
     queryKey: ["tickers-lite"],
     queryFn: () => getTickersLite(),
-    refetchInterval: 20_000,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
     enabled: typeof window !== "undefined",
   });
-  const scan = useScan();
+  const openSymbols = journal.filter((t) => !t.closedAt).map((t) => t.symbol);
+  const marks = useQuery({
+    queryKey: ["marks", [...openSymbols].sort().join("|")],
+    queryFn: () => getMarkPrices({ data: { symbols: openSymbols } }),
+    refetchInterval: 12_000,
+    staleTime: 8_000,
+    enabled: typeof window !== "undefined" && openSymbols.length > 0,
+  });
+  const lastScan = useAppStore((s) => s.lastScan);
   const priceMap = new Map(prices.data?.map((t) => [t.symbol, t.price]) ?? []);
-  const bySymbol = new Map(scan.data?.signals.map((s) => [s.symbol, s]) ?? []);
+  const markMap = new Map(
+    (marks.data ?? []).map((r) => [r.symbol, r.mark] as const),
+  );
+  const bySymbol = new Map(lastScan?.signals.map((s) => [s.symbol, s]) ?? []);
 
   const open = journal.filter((t) => !t.closedAt);
   const closed = journal.filter((t) => t.closedAt);
@@ -51,32 +65,8 @@ function JournalPage() {
   const wr = closed.length ? (wins / closed.length) * 100 : 0;
   const pnl = closed.reduce((a, t) => a + (t.pnlUsd ?? 0), 0);
 
-  const missing = [...new Set(open.map((t) => t.symbol).filter((s) => !bySymbol.has(s)))];
-  const extras = useQueries({
-    queries: missing.map((symbol) => {
-      const trade = open.find((t) => t.symbol === symbol);
-      const market: MarketKind =
-        trade?.market ?? (symbol.includes("-SWAP-") ? "futures" : "spot");
-      return {
-        queryKey: ["pair", symbol, settings.mode, market],
-        queryFn: () =>
-          getPairDetail({
-            data: { symbol, mode: settings.mode, market },
-          }),
-        staleTime: 30_000,
-        retry: 0,
-        enabled: typeof window !== "undefined",
-      };
-    }),
-  });
-  const extraMap = new Map<string, Signal>();
-  extras.forEach((q, i) => {
-    const sym = missing[i];
-    if (sym && q.data) extraMap.set(sym, q.data);
-  });
-
   function analysis(t: PaperTrade): Signal | undefined {
-    return bySymbol.get(t.symbol) ?? extraMap.get(t.symbol);
+    return bySymbol.get(t.symbol);
   }
 
   return (
@@ -108,25 +98,24 @@ function JournalPage() {
         ) : (
           <div className="space-y-3">
             {open.map((t) => {
-              const px = priceMap.get(t.symbol) ?? analysis(t)?.price;
+              const last = priceMap.get(t.symbol) ?? analysis(t)?.price;
+              const px = markMap.get(t.symbol) ?? last;
               const sig = analysis(t);
               const alert = alertForOpenTrade(t.side, sig);
-              const fee =
-                px != null
-                  ? roundTripFee(t.qty, t.entry, px, t.takerBps ?? 6)
-                  : 0;
+              const lev = t.market === "spot" ? 1 : Math.max(1, t.leverage || 0);
+              const margin =
+                t.usdt ?? (lev > 1 ? (t.qty * t.entry) / lev : t.qty * t.entry);
+              const qty =
+                lev > 1 ? qtyFromMargin(margin, t.entry, lev) : t.qty;
+              const notional = px != null ? qty * px : margin * Math.max(lev, 1);
               const uPnL =
                 px != null
-                  ? (t.side === "long"
-                      ? (px - t.entry) * t.qty
-                      : (t.entry - px) * t.qty) - fee
+                  ? t.side === "long"
+                    ? (px - t.entry) * qty
+                    : (t.entry - px) * qty
                   : null;
               const uPct =
-                px != null && t.entry > 0
-                  ? t.side === "long"
-                    ? (px - t.entry) / t.entry
-                    : (t.entry - px) / t.entry
-                  : null;
+                uPnL != null && margin > 0 ? uPnL / margin : null;
               return (
                 <article
                   key={t.id}
@@ -156,16 +145,20 @@ function JournalPage() {
                   </div>
                   <p className="mt-1 font-mono text-[12px] text-muted-foreground" dir="ltr">
                     {fmtPrice(t.entry)} → SL {fmtPrice(t.sl)} · TP {fmtPrice(t.tp1)}
-                    {px != null ? ` · now ${fmtPrice(px)}` : ""}
-                    {t.leverage ? ` · ${t.leverage}x` : ""}
+                    {px != null ? ` · mark ${fmtPrice(px)}` : ""}
                   </p>
-                  {t.takerBps != null ? (
-                    <p className="mt-1 text-[11px] text-subtle">
-                      کارمزد رفت‌وبرگشت تیکر حدود {((t.takerBps * 2) / 100).toFixed(2)}٪ در PnL کم شده
-                    </p>
-                  ) : null}
-                  <EditOpenTrade trade={t} last={px} />
-                  {sig ? (
+                  <p className="mt-1 text-[11px] leading-5 text-subtle">
+                    {t.leverage
+                      ? `مارجین ${Number(margin).toFixed(4)} · اندازه ${notional.toFixed(4)} · اهرم ثبت‌شده ${t.leverage}x`
+                      : "اهرم هنگام ثبت مشخص نشده؛ از ویرایش بگذار."}
+                  </p>
+                  <EditOpenTrade
+                    trade={t}
+                    last={px}
+                    open={editId === t.id}
+                    onToggle={() => setEditId(editId === t.id ? null : t.id)}
+                  />
+                  {editId === t.id ? null : sig ? (
                     <div className="mt-3">
                       <PipelineStrip pipeline={sig.pipeline} compact />
                       <p className="mt-2 text-[12px] leading-5 text-muted-foreground">
@@ -182,6 +175,13 @@ function JournalPage() {
                   )}
                   {alert ? <ExitBanner alert={alert} /> : null}
                   <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      type="button"
+                      onClick={() => setEditId(editId === t.id ? null : t.id)}
+                    >
+                      {editId === t.id ? "بستن ویرایش" : "ویرایش"}
+                    </Button>
                     {alert?.level === "emergency" ? (
                       <Button
                         size="sm"
@@ -278,6 +278,9 @@ function ManualTradeForm({
   const [sl, setSl] = useState("");
   const [tp, setTp] = useState("");
   const [usdt, setUsdt] = useState(String(settings.orderUsd || 50));
+  const [levStr, setLevStr] = useState(
+    String(settings.leverageBySymbol[""] ?? settings.leverage ?? 5),
+  );
 
   const symbol = resolveSymbol(raw, market);
   const last = useMemo(
@@ -309,9 +312,11 @@ function ManualTradeForm({
       toast.error("برای شورت حد ضرر باید بالای ورود باشد");
       return;
     }
-    const sized = qtyFromUsdt(Number(usdt) || settings.orderUsd || 50, e);
+    const margin = Number(usdt) || settings.orderUsd || 50;
+    const lev = market === "spot" ? 1 : Number(levStr) || settings.leverage || 5;
+    const sized = qtyFromMargin(margin, e, lev);
     if (sized <= 0) {
-      toast.error("حجم تتر نامعتبر است");
+      toast.error("مارجین تتر نامعتبر است");
       return;
     }
     const tp1 =
@@ -331,9 +336,8 @@ function ManualTradeForm({
       tp1,
       tp2: side === "long" ? e + 2 * Math.abs(e - stop) : e - 2 * Math.abs(e - stop),
       qty: sized,
-      usdt: Number(usdt) || settings.orderUsd || 50,
-      leverage:
-        settings.leverageBySymbol[symbol] ?? settings.leverage,
+      usdt: margin,
+      leverage: lev,
       takerBps: market === "spot" ? 0 : 6,
       makerBps: market === "spot" ? 0 : 2,
       riskUsd: Math.abs(e - stop) * sized,
@@ -361,7 +365,7 @@ function ManualTradeForm({
       {open ? (
         <div className="mt-3 space-y-3 rounded-2xl bg-card p-4 shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
           <p className="text-[12px] leading-5 text-muted-foreground">
-            مقدار ورود را به تتر وارد کن، نه درصد. حجم کوین از روی همان تتر حساب می‌شود.
+            مقدار ورود را به تتر مارجین وارد کن، نه درصد. اندازه پوزیشن = مارجین × اهرم؛ مثل توبیت.
           </p>
           <div className="grid grid-cols-2 gap-2">
             {(["futures", "spot"] as MarketKind[]).map((m) => (
@@ -387,7 +391,7 @@ function ManualTradeForm({
               onChange={(e) => setRaw(e.target.value)}
               list="nabz-symbols"
               placeholder="BTC یا ETH"
-              className="h-12 w-full rounded-xl bg-surface px-3 font-mono text-[15px]"
+              className="h-12 w-full rounded-xl bg-surface px-3 font-mono text-[16px]"
             />
             <datalist id="nabz-symbols">
               {tickers.slice(0, 40).map((t) => (
@@ -430,11 +434,14 @@ function ManualTradeForm({
             <Field label="حد ضرر" value={sl} placeholder="الزامی" onChange={setSl} />
             <Field label="هدف (اختیاری)" value={tp} onChange={setTp} />
             <Field
-              label="حجم (تتر)"
+              label="مارجین (تتر)"
               value={usdt}
-              placeholder="مثلا ۵۰"
+              placeholder="مثلا ۲"
               onChange={setUsdt}
             />
+            {market === "futures" ? (
+              <Field label="اهرم" value={levStr} placeholder="5" onChange={setLevStr} />
+            ) : null}
           </div>
           <Button className="w-full" onClick={submit}>
             ثبت و شروع تحلیل
@@ -448,18 +455,22 @@ function ManualTradeForm({
 function EditOpenTrade({
   trade,
   last,
+  open,
+  onToggle,
 }: {
   trade: PaperTrade;
   last?: number;
+  open: boolean;
+  onToggle: () => void;
 }) {
   const updateTrade = useAppStore((s) => s.updateTrade);
-  const [on, setOn] = useState(false);
   const [entry, setEntry] = useState(String(trade.entry));
   const [sl, setSl] = useState(String(trade.sl));
   const [tp, setTp] = useState(String(trade.tp1));
   const [usdt, setUsdt] = useState(
     String(trade.usdt ?? Math.round(trade.qty * trade.entry * 100) / 100),
   );
+  const [lev, setLev] = useState(String(trade.leverage || 5));
   const [side, setSide] = useState(trade.side);
 
   function save() {
@@ -467,8 +478,9 @@ function EditOpenTrade({
     const stop = Number(sl);
     const target = Number(tp);
     const usd = Number(usdt);
+    const leverage = trade.market === "spot" ? 1 : Number(lev) || 1;
     if (![e, stop, usd].every((n) => Number.isFinite(n) && n > 0)) {
-      toast.error("ورود، حد ضرر و حجم تتر لازم است");
+      toast.error("ورود، حد ضرر و مارجین تتر لازم است");
       return;
     }
     if (side === "long" && stop >= e) {
@@ -479,7 +491,7 @@ function EditOpenTrade({
       toast.error("برای شورت حد ضرر باید بالای ورود باشد");
       return;
     }
-    const qty = qtyFromUsdt(usd, e);
+    const qty = qtyFromMargin(usd, e, leverage);
     updateTrade(trade.id, {
       side,
       entry: e,
@@ -487,54 +499,53 @@ function EditOpenTrade({
       tp1: Number.isFinite(target) && target > 0 ? target : trade.tp1,
       qty,
       usdt: usd,
+      leverage,
       riskUsd: Math.abs(e - stop) * qty,
     });
-    toast.success("معامله به‌روز شد");
-    setOn(false);
+    toast.success("ذخیره شد");
+    onToggle();
   }
 
+  if (!open) return null;
   return (
-    <div className="mt-2">
-      <Button size="sm" variant="ghost" onClick={() => setOn((v) => !v)}>
-        {on ? "انصراف ویرایش" : "ویرایش"}
-      </Button>
-      {on ? (
-        <div className="mt-2 space-y-2 rounded-xl bg-surface p-3">
-          <div className="grid grid-cols-2 gap-2">
-            {(["long", "short"] as Side[]).map((x) => (
-              <button
-                key={x}
-                type="button"
-                onClick={() => setSide(x)}
-                className={cn(
-                  "h-10 rounded-lg text-[13px]",
-                  side === x
-                    ? x === "long"
-                      ? "bg-long/20 text-long"
-                      : "bg-short/20 text-short"
-                    : "bg-card text-muted-foreground",
-                )}
-              >
-                {sideLabel(x)}
-              </button>
-            ))}
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="ورود" value={entry} onChange={setEntry} />
-            <Field label="حد ضرر" value={sl} onChange={setSl} />
-            <Field label="هدف" value={tp} onChange={setTp} />
-            <Field label="حجم تتر" value={usdt} onChange={setUsdt} />
-          </div>
-          {last != null ? (
-            <p className="text-[11px] text-subtle" dir="ltr">
-              now {last}
-            </p>
-          ) : null}
-          <Button size="sm" className="w-full" onClick={save}>
-            ذخیره تغییرات
-          </Button>
-        </div>
+    <div className="mt-3 space-y-2 rounded-xl bg-surface p-3">
+      <p className="text-[13px] font-medium">ویرایش معامله</p>
+      <div className="grid grid-cols-2 gap-2">
+        {(["long", "short"] as Side[]).map((x) => (
+          <button
+            key={x}
+            type="button"
+            onClick={() => setSide(x)}
+            className={cn(
+              "h-11 rounded-lg text-[13px]",
+              side === x
+                ? x === "long"
+                  ? "bg-long/20 text-long"
+                  : "bg-short/20 text-short"
+                : "bg-card text-muted-foreground",
+            )}
+          >
+            {sideLabel(x)}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="ورود" value={entry} onChange={setEntry} />
+        <Field label="حد ضرر" value={sl} onChange={setSl} />
+        <Field label="هدف" value={tp} onChange={setTp} />
+        <Field label="مارجین تتر" value={usdt} onChange={setUsdt} />
+        {trade.market !== "spot" ? (
+          <Field label="اهرم" value={lev} onChange={setLev} />
+        ) : null}
+      </div>
+      {last != null ? (
+        <p className="text-[11px] text-subtle" dir="ltr">
+          now {last}
+        </p>
       ) : null}
+      <Button type="button" className="w-full" onClick={save}>
+        ذخیره تغییرات
+      </Button>
     </div>
   );
 }
@@ -629,7 +640,7 @@ function Field({
         inputMode="decimal"
         placeholder={placeholder}
         dir="ltr"
-        className="h-12 w-full rounded-xl bg-surface px-3 font-mono text-[14px]"
+        className="h-12 w-full rounded-xl bg-surface px-3 font-mono text-[16px]"
       />
     </label>
   );

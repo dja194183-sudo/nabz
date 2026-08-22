@@ -51,9 +51,14 @@ export function levChoices(max: number) {
   );
 }
 
+export function qtyFromMargin(margin: number, entry: number, leverage = 1) {
+  const lev = Math.max(1, leverage);
+  if (entry <= 0 || margin <= 0) return 0;
+  return (margin * lev) / entry;
+}
+
 export function qtyFromUsdt(usdt: number, entry: number) {
-  if (entry <= 0 || usdt <= 0) return 0;
-  return usdt / entry;
+  return qtyFromMargin(usdt, entry, 1);
 }
 
 export function fmtUsd(n: number, digits = 2) {

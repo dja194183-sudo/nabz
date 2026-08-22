@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronRight, ExternalLink, Star } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
 import { CandleChart } from "@/components/candle-chart";
@@ -21,6 +21,7 @@ import {
   fmtUsd,
   lockHint,
   qtyFromUsdt,
+  qtyFromMargin,
   sideLabel,
   toobitTradeUrl,
 } from "@/lib/format";
@@ -54,6 +55,7 @@ function PairPage() {
           timeframe: settings.timeframe,
           mode: settings.mode,
           market: symbol.includes("-SWAP-") ? "futures" : settings.market,
+          deep: true,
         },
       }),
     enabled: typeof window !== "undefined",
@@ -91,11 +93,23 @@ function PairPage() {
 
   const s = detail.data;
   const watched = watchlist.includes(symbol);
+  const [orderLev, setOrderLev] = useState(5);
+
+  useEffect(() => {
+    const stored = settings.leverageBySymbol[symbol];
+    if (stored) setOrderLev(stored);
+  }, [symbol, settings.leverageBySymbol]);
+
+  function tradeLev() {
+    if (!s || s.market === "spot") return 1;
+    return orderLev;
+  }
 
   function paper() {
     if (!s || !s.side) return;
-    const usdt = settings.orderUsd || settings.capital || 50;
-    const qty = qtyFromUsdt(usdt, s.entry);
+    const margin = settings.orderUsd || settings.capital || 50;
+    const lev = tradeLev();
+    const qty = qtyFromMargin(margin, s.entry, lev);
     addTrade({
       id: `${s.symbol}-${Date.now()}`,
       symbol: s.symbol,
@@ -106,10 +120,8 @@ function PairPage() {
       tp1: s.tp1,
       tp2: s.tp2,
       qty,
-      usdt,
-      leverage:
-        settings.leverageBySymbol[s.symbol] ??
-        Math.min(settings.leverage, s.maxLeverage || settings.leverage),
+      usdt: margin,
+      leverage: lev,
       takerBps: s.takerBps,
       makerBps: s.makerBps,
       riskUsd: Math.abs(s.entry - s.sl) * qty,
@@ -117,13 +129,13 @@ function PairPage() {
       openedAt: Date.now(),
       source: "signal",
     });
-    toast.success("در ژورنال کاغذی ثبت شد");
+    toast.success(`در ژورنال ثبت شد · ${lev}x`);
   }
 
   const send = useMutation({
     mutationFn: () => {
       if (!s || !s.side) throw new Error("سیگنال جهت ندارد");
-      const qty = qtyFromUsdt(settings.orderUsd || 50, s.entry);
+      const qty = qtyFromMargin(settings.orderUsd || 50, s.entry, tradeLev());
       return placeToobitOrder({
         data: {
           apiKey: settings.apiKey,
@@ -136,7 +148,7 @@ function PairPage() {
           price: s.entryKind === "limit" ? s.entry : s.price,
           sl: s.sl,
           tp: s.tp1,
-          leverage: settings.leverage,
+          leverage: tradeLev(),
         },
       });
     },
@@ -327,7 +339,21 @@ function PairPage() {
 
           {s.market !== "spot" ? (
             <div className="mt-4">
-              <LeveragePills symbol={s.symbol} max={s.maxLeverage || 20} />
+              <LeveragePills
+                symbol={s.symbol}
+                max={s.maxLeverage}
+                value={orderLev}
+                onPick={(n) => {
+                  setOrderLev(n);
+                  useAppStore.getState().setSettings({
+                    leverageBySymbol: {
+                      ...settings.leverageBySymbol,
+                      [s.symbol]: n,
+                    },
+                  });
+                }}
+                title="اهرم این معامله را قبل از ثبت انتخاب کن"
+              />
             </div>
           ) : null}
 
@@ -350,20 +376,18 @@ function PairPage() {
           ) : null}
 
           {(() => {
-            const usdt = settings.orderUsd || 50;
-            const qty = qtyFromUsdt(usdt, s.entry);
+            const margin = settings.orderUsd || 50;
+            const lev = s.market === "spot" ? 1 : orderLev;
+            const qty = qtyFromMargin(margin, s.entry, lev);
             const risk = Math.abs(s.entry - s.sl) * qty;
             return (
               <p className="mt-3 text-[13px] leading-6 text-muted-foreground">
-                حجم ورود {fmtUsd(usdt, 0)} تتر
+                مارجین {fmtUsd(margin, 0)} · اندازه {(margin * lev).toFixed(2)} تتر · {lev}x
                 {" — "}
                 <span className="font-mono text-foreground" dir="ltr">
                   {fmtQty(qty)} {s.base}
                 </span>
-                {` · ریسک تقریبی تا حد ضرر ${fmtUsd(risk)}`}
-                {s.market === "spot"
-                  ? " — اسپات اهرم ندارد و این سفارش روی توبیت ثبت نمی‌شود."
-                  : ` · اهرم ${settings.leverage}x — سفارش روی توبیت ثبت نمی‌شود.`}
+                {` · ریسک تا حد ضرر ${fmtUsd(risk)}`}
               </p>
             );
           })()}
@@ -371,13 +395,13 @@ function PairPage() {
           <div className="mt-4 grid grid-cols-2 gap-2">
             <Cell
               k="وین‌ریت بک‌تست"
-              v={s.backtest.n >= 6 ? `${Math.round(s.backtest.winRate)}٪` : "نمونه کم"}
-              sub={`${s.backtest.n} معامله · ${s.backtest.wins} برد / ${s.backtest.losses} باخت`}
+              v={s.backtest.n >= 8 ? `${Math.round(s.backtest.winRate)}٪` : "نمونه کم"}
+              sub={`${s.backtest.n} ستاپ در تاریخچه · ${s.backtest.wins} برد / ${s.backtest.losses} باخت`}
             />
             <Cell
               k="سود به زیان"
               v={
-                s.backtest.n >= 6
+                s.backtest.n >= 8
                   ? s.backtest.profitFactor >= 20
                     ? "∞"
                     : s.backtest.profitFactor.toFixed(2)
@@ -405,7 +429,7 @@ function PairPage() {
           </div>
 
           <p className="mt-3 text-[11px] leading-5 text-subtle">
-            بک‌تست همان زنجیره را روی کندل بسته‌شده ۱۵دقیقه اجرا می‌کند؛ اگر حد ضرر و هدف در یک کندل هر دو بخورند اول حد ضرر حساب می‌شود. کارمزد ۰٫۰۵٪ و لغزش ۰٫۰۲٪ هر طرف از نتیجه کم شده. تضمین آینده نیست.
+            بک‌تست روی حدود ۱۰ روز کندل ۱۵دقیقه است و فقط ستاپ‌های هم‌جهت ۴H+۱H+۱۵M را می‌شمارد؛ برای همین روی خیلی از آلت‌ها نمونه کم است. اگر حد و هدف در یک کندل هر دو بخورند اول حد ضرر است. کارمزد تیکر و لغزش از نتیجه کم شده. تضمین آینده نیست.
           </p>
 
           <ul className="mt-4 space-y-1.5">
@@ -429,8 +453,8 @@ function PairPage() {
 
           <div className="mt-5 grid grid-cols-2 gap-2">
             <Button
-              variant={s.side === "short" ? "short" : "long"}
-              disabled={!s.side || s.entryState !== "ready"}
+              variant={s.entryState !== "ready" ? "outline" : s.side === "short" ? "short" : "long"}
+              disabled={!s.side}
               onClick={paper}
             >
               {s.entryState !== "ready" ? "ورود فوری نه" : "ثبت در ژورنال"}
@@ -442,10 +466,15 @@ function PairPage() {
               </a>
             </Button>
           </div>
+          {s.side && s.entryState !== "ready" ? (
+            <p className="mt-2 text-[12px] leading-5 text-muted-foreground">
+              هشدار است، قفل نیست. اگر خواستی باز هم می‌توانی ثبت کنی.
+            </p>
+          ) : null}
           <Button
             className="mt-2 w-full"
             variant="outline"
-            disabled={!s.side || s.entryState !== "ready"}
+            disabled={!s.side}
             onClick={() => {
               if (!settings.apiKey || !settings.apiSecret) {
                 toast.error("اول در تنظیمات کلید API توبیت را بگذار");

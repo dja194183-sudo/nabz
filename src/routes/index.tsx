@@ -79,7 +79,7 @@ function Home() {
         </p>
         {scan.data && !scan.data.done ? (
           <p className="mt-2 text-[12px] text-muted-foreground">
-            در حال بررسی کل بازار · {scan.data.scanned} از {scan.data.total} نماد
+            در حال بررسی بازار · {scan.data.scanned} از {scan.data.total} نماد — هنوز کل بازار نیست
           </p>
         ) : scan.data?.done ? (
           <p className="mt-2 text-[12px] text-subtle">

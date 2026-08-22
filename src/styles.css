@@ -36,6 +36,7 @@
     background: var(--color-background);
     color: var(--color-foreground);
     direction: rtl;
+    overflow-x: hidden;
   }
 
   body {
@@ -45,6 +46,7 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
     direction: rtl;
+    overflow-x: hidden;
   }
 
   button:not(:disabled),

@@ -4,20 +4,30 @@ import { cn } from "@/lib/utils";
 
 export function LeveragePills({
   symbol,
-  max = 50,
+  max,
+  value,
+  onPick,
+  title,
 }: {
   symbol?: string;
-  max?: number;
+  max?: number | null;
+  value?: number;
+  onPick?: (n: number) => void;
+  title?: string;
 }) {
   const settings = useAppStore((s) => s.settings);
   const setSettings = useAppStore((s) => s.setSettings);
-  const options = levChoices(max);
-  const current = symbol
-    ? Math.min(max, settings.leverageBySymbol[symbol] ?? settings.leverage)
-    : Math.min(max, settings.leverage);
+  const cap = max && max > 0 ? max : 50;
+  const options = levChoices(cap);
+  const current =
+    value ??
+    (symbol
+      ? Math.min(cap, settings.leverageBySymbol[symbol] ?? settings.leverage)
+      : Math.min(cap, settings.leverage));
 
   function pick(n: number) {
-    if (symbol) {
+    if (onPick) onPick(n);
+    else if (symbol) {
       setSettings({
         leverageBySymbol: { ...settings.leverageBySymbol, [symbol]: n },
       });
@@ -30,7 +40,10 @@ export function LeveragePills({
   return (
     <div>
       <p className="mb-2 text-[12px] text-muted-foreground">
-        اهرم {symbol ? `این نماد · سقف توبیت ${max}x` : "پیش‌فرض"}
+        {title ??
+          (symbol
+            ? `اهرم این معامله${max ? ` · سقف توبیت ${max}x` : ""}`
+            : "اهرم پیش‌فرض")}
       </p>
       <div className="flex flex-wrap gap-1.5">
         {options.map((n) => (

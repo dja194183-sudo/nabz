@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#0a0a0b"/>
+<title>NABZ 1.13</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Vazirmatn:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+:root{--bg:#0a0a0b;--fg:#f1f1f3;--card:#121214;--surf:#1a1a1e;--mut:#9a9aa3;--sub:#6e6e76;--line:rgba(255,255,255,.1);--long:#3d9a78;--short:#c45c5c}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:Vazirmatn,system-ui,sans-serif;min-height:100dvh}
+button,input,select{font-family:inherit}
+button{cursor:pointer}
+.wrap{max-width:430px;margin:0 auto;padding:16px 16px 88px}
+.top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px}
+h1{font-size:28px;margin:0;letter-spacing:-.03em}
+.meta{font-size:11px;letter-spacing:.18em;color:var(--mut);font-weight:500}
+.muted{color:var(--mut);font-size:13px;line-height:1.7}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.chip{height:40px;padding:0 12px;border-radius:10px;border:0;background:var(--surf);color:var(--mut);font-size:13px;font-weight:500}
+.chip.on{background:#e8e9ec;color:#0a0a0b}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin-top:10px}
+.long{color:var(--long)} .short{color:var(--short)}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;direction:ltr;text-align:left}
+.nav{position:fixed;inset-inline:0;bottom:0;background:rgba(10,10,11,.96);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);max-width:430px;margin:0 auto;padding-bottom:env(safe-area-inset-bottom)}
+.nav button{height:56px;background:0;border:0;color:var(--mut);font-size:11px}
+.nav button.on{color:var(--fg)}
+.hidden{display:none}
+.btn{height:44px;border:0;border-radius:12px;background:#e8e9ec;color:#0a0a0b;font-weight:600;padding:0 14px}
+.btn.ghost{background:var(--surf);color:var(--fg)}
+.btn.danger{background:var(--short);color:#fff}
+input,select{height:44px;width:100%;border-radius:12px;border:1px solid var(--line);background:var(--surf);color:var(--fg);padding:0 12px}
+label{display:block;font-size:12px;color:var(--mut);margin:8px 0 4px}
+.pills{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
+.pill{height:46px;border-radius:12px;border:1px solid var(--line);background:var(--surf);color:var(--mut);font-size:11px}
+.pill.on{background:#13231d;color:var(--long);border-color:transparent}
+.pill.bad{background:#231313;color:var(--short)}
+.prog{height:6px;background:var(--surf);border-radius:99px;overflow:hidden;margin-top:8px}
+.bar{height:100%;background:var(--long);width:0}
+.empty{text-align:center;padding:28px 12px;color:var(--mut);font-size:13px;line-height:1.8}
+.flex{display:flex;justify-content:space-between;align-items:center;gap:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="meta">TOOBIT <span id="mktLab">FUTURES</span> · v1.13</div>
+      <h1>NABZ</h1>
+    </div>
+    <button class="chip" id="btnScan">اسکن</button>
+  </header>
+  <p class="muted" style="margin-top:10px">سیگنال از ۴H و ۱H و ستاپ ۱۵M. ورود دور شده را تعقیب نکن. کارمزد تیکر توبیت ۰٫۰۶٪ در PnL کم می‌شود. تضمین سود نیست.</p>
+  <div class="prog"><div class="bar" id="bar"></div></div>
+  <p class="muted" id="scanStat" style="margin-top:6px">آماده اسکن کل بازار</p>
+
+  <section id="page-sig">
+    <div class="row">
+      <button class="chip on" data-m="futures">فیوچرز</button>
+      <button class="chip" data-m="spot">اسپات</button>
+      <button class="chip on" data-mode="strict">محافظه‌کار</button>
+      <button class="chip" data-mode="balanced">متعادل</button>
+    </div>
+    <div id="sigList"></div>
+  </section>
+
+  <section id="page-mkt" class="hidden">
+    <input id="q" placeholder="جستجوی نماد" style="margin-top:12px"/>
+    <div id="mktList"></div>
+  </section>
+
+  <section id="page-jnl" class="hidden">
+    <div class="card">
+      <b>معامله خودم را بده</b>
+      <label>نماد</label><input id="jSym" placeholder="BTC یا ENA"/>
+      <div class="row">
+        <button class="chip on" data-side="long">لانگ</button>
+        <button class="chip" data-side="short">شورت</button>
+      </div>
+      <label>ورود</label><input id="jEntry" inputmode="decimal"/>
+      <label>حد ضرر</label><input id="jSl" inputmode="decimal"/>
+      <label>هدف</label><input id="jTp" inputmode="decimal"/>
+      <label>حجم (تتر) نه درصد</label><input id="jUsdt" inputmode="decimal" value="50"/>
+      <button class="btn" style="width:100%;margin-top:10px" id="jAdd">ثبت</button>
+    </div>
+    <div id="jOpen"></div>
+    <div id="jClosed"></div>
+  </section>
+
+  <section id="page-set" class="hidden">
+    <div class="card">
+      <label>سرمایه (تتر)</label><input id="sCap" type="number" value="50"/>
+      <label>حجم ورود (تتر)</label><input id="sOrd" type="number" value="50"/>
+      <p class="muted" style="margin-top:10px">اهرم سقف هر ارز از توبیت خوانده می‌شود. کارمزد فیوچرز VIP0: میکر ۰٫۰۲٪ تیکر ۰٫۰۶٪. اسپات ۰.</p>
+    </div>
+  </section>
+</div>
+<nav class="nav">
+  <button class="on" data-p="sig">سیگنال</button>
+  <button data-p="mkt">بازار</button>
+  <button data-p="jnl">ژورنال</button>
+  <button data-p="set">تنظیمات</button>
+</nav>
+<script>
+const APP="NABZ", VER="1.13";
+const TF={h4:4*3600e3,h1:3600e3,m15:15*60e3};
+const MODE={strict:{minScore:72,minAdx:18},balanced:{minScore:62,minAdx:14}};
+const STORE="nabz-html-v113";
+const TAKER=6, MAKER=2;
+let S={market:"futures",mode:"strict",capital:50,orderUsd:50,journal:[],signals:[],scanned:0,total:0,done:true,bySym:{}};
+try{Object.assign(S, JSON.parse(localStorage.getItem(STORE)||"{}"));}catch(e){}
+function save(){localStorage.setItem(STORE, JSON.stringify({capital:S.capital,orderUsd:S.orderUsd,journal:S.journal,market:S.market,mode:S.mode}));}
+function $(id){return document.getElementById(id)}
+function fmtP(n){if(!Number.isFinite(n))return "—"; const a=Math.abs(n); const d=a>=1000?1:a>=1?4:a>=.01?6:8; return n.toLocaleString("en-US",{maximumFractionDigits:d});}
+function fmtPnl(n){const s=n>0?"+":n<0?"-":""; return s+Math.abs(n).toFixed(6);}
+function fmtPct(f){const s=f>0?"+":f<0?"-":""; return s+Math.abs(f*100).toFixed(2)+"%";}
+function sideFa(x){return x==="long"?"لانگ":x==="short"?"شورت":"—";}
+
+function ema(v,p){const o=Array(v.length).fill(null); if(v.length<p)return o; const k=2/(p+1); let prev=0; for(let i=0;i<p;i++)prev+=v[i]; prev/=p; o[p-1]=prev; for(let i=p;i<v.length;i++){prev=v[i]*k+prev*(1-k); o[i]=prev;} return o;}
+function sma(v,p){const o=Array(v.length).fill(null); let s=0; for(let i=0;i<v.length;i++){s+=v[i]; if(i>=p)s-=v[i-p]; if(i>=p-1)o[i]=s/p;} return o;}
+function rsi(c,p=14){const o=Array(c.length).fill(null); if(c.length<=p)return o; let g=0,l=0; for(let i=1;i<=p;i++){const d=c[i]-c[i-1]; if(d>=0)g+=d; else l-=d;} let ag=g/p,al=l/p; o[p]=al===0?100:100-100/(1+ag/al); for(let i=p+1;i<c.length;i++){const d=c[i]-c[i-1]; ag=(ag*(p-1)+(d>0?d:0))/p; al=(al*(p-1)+(d<0?-d:0))/p; o[i]=al===0?100:100-100/(1+ag/al);} return o;}
+function atr(rows,p=14){const tr=[0]; for(let i=1;i<rows.length;i++){const c=rows[i],pr=rows[i-1]; tr.push(Math.max(c.h-c.l,Math.abs(c.h-pr.c),Math.abs(c.l-pr.c)));} return ema(tr,p);}
+function macd(c){const f=ema(c,12),s=ema(c,26); const line=c.map((_,i)=>f[i]!=null&&s[i]!=null?f[i]-s[i]:null); const valid=line.filter(v=>v!=null); const pad=line.length-valid.length; const sig=[...Array(pad).fill(null),...ema(valid,9)]; return line.map((v,i)=>v!=null&&sig[i]!=null?v-sig[i]:null);}
+function adxApprox(rows){const a=atr(rows,14); const i=a.length-1; return a[i]&&rows[i]? Math.min(60, (a[i]/rows[i].c)*1400):12;}
+function enrich(rows){const c=rows.map(x=>x.c), v=rows.map(x=>x.v); return {candles:rows,e21:ema(c,21),e50:ema(c,50),rsi:rsi(c),atr:atr(rows),macd:macd(c),vol:sma(v,20)};}
+function lastClosed(rows,step,asOf){let i=rows.length-1; while(i>=0 && rows[i].t+step>asOf)i--; return i;}
+function regime(e,i){const c=e.candles[i],e21=e.e21[i],e50=e.e50[i],mac=e.macd[i],r=e.rsi[i]; if(!c||e21==null||e50==null)return "range"; const trend=Math.abs(e21-e50)/Math.max(c.c,1e-9); if(trend<0.0018 && Math.abs(mac||0)<c.c*0.0004)return "range"; if(e21>e50 && (mac||0)>=0 && (r??50)>=50)return "bull"; if(e21<e50 && (mac||0)<=0 && (r??50)<=50)return "bear"; return "transition";}
+function dirAt(e,i){const e21=e.e21[i],e50=e.e50[i],mac=e.macd[i],r=e.rsi[i]; if(e21==null||e50==null)return "wait"; const s=(e21>e50?1:-1)+((mac||0)>=0?1:-1)+((r??50)>=50?1:-1); return s>=2?"long":s<=-2?"short":"wait";}
+function setupAt(e,i){if(i<4)return "wait"; const a=e.candles[i],b=e.candles[i-1],e21=e.e21[i],prev=e.e21[i-1],r=e.rsi[i]??50; if(e21==null||prev==null)return "wait"; const up=a.c>e21 && e21>=prev, dn=a.c<e21 && e21<=prev; if((up&&r>=52)||(a.c>b.h && r>=50 && e21>(e.e50[i]??e21)))return "long"; if((dn&&r<=48)||(a.c<b.l && r<=50 && e21<(e.e50[i]??e21)))return "short"; return "wait";}
+function candidate(h4,h1){if(h4==="bull"&&h1==="long")return "long"; if(h4==="bear"&&h1==="short")return "short"; return "wait";}
+function pipeline(h4e,h1e,m15e,asOf){const i4=lastClosed(h4e.candles,TF.h4,asOf), i1=lastClosed(h1e.candles,TF.h1,asOf), i15=lastClosed(m15e.candles,TF.m15,asOf); const h4=i4>=50?regime(h4e,i4):"range"; const h1=i1>=50?dirAt(h1e,i1):"wait"; const cand=candidate(h4,h1); const m15=cand==="wait"||i15<60?"wait":setupAt(m15e,i15); let reason="بازار بدون ستاپ"; if(h4==="range")reason="بازار ۴ساعته بدون جهت مشخص است"; else if(h4==="transition")reason="روند ۴ساعته در حال تغییر است"; else if(cand==="wait")reason=`تضاد ۴ساعته (${h4}) با ۱ساعته (${h1})`; else if(m15!==cand)reason=`جهت ${cand} هست؛ ستاپ ۱۵دقیقه هنوز شکل نگرفته`; else reason=`${cand==="long"?"لانگ":"شورت"} — ستاپ ۱۵دقیقه معتبر است`; return {h4,h1,m15,cand,reason,i15};}
+function scoreOf(pipe,m15e,adx){let L=0,S=0; if(pipe.h4==="bull")L+=26; if(pipe.h4==="bear")S+=26; if(pipe.h1==="long")L+=20; if(pipe.h1==="short")S+=20; if(pipe.m15==="long")L+=16; if(pipe.m15==="short")S+=16; const i=m15e.candles.length-1,e21=m15e.e21[i],e50=m15e.e50[i],c=m15e.candles[i]?.c||0; if(e21!=null&&e50!=null&&c>e50&&e21>=e50)L+=8; if(e21!=null&&e50!=null&&c<e50&&e21<=e50)S+=8; if(adx>=16){L+=8;S+=8;} else {L+=2;S+=2;} const side=pipe.cand==="wait"?null:pipe.cand; const score=side==="long"?L:side==="short"?S:Math.max(L,S); return {side,score:Math.max(0,Math.min(100,Math.round(score))),rsi:m15e.rsi[i]??50,adx};}
+function plan(side,row,atrV){const slDist=Math.max(1.45*atrV, atrV); const entry=row.c; const sl=side==="short"?entry+slDist:entry-slDist; const tp1=side==="short"?entry-1.2*slDist:entry+1.2*slDist; return {entry,sl,tp1};}
+function stretch(side,price,entry,atrV){if(!atrV)return {state:"ready",fillable:true}; const d=Math.abs(price-entry)/atrV; if(side==="long"&&price>entry+atrV*0.55)return {state:"stretched",fillable:false}; if(side==="short"&&price<entry-atrV*0.55)return {state:"stretched",fillable:false}; if(d>0.35)return {state:"pullback",fillable:false}; return {state:"ready",fillable:true};}
+function parseKlines(raw){if(!Array.isArray(raw))return []; return raw.map(r=>{const a=Array.isArray(r)?r:[r.t,r.o,r.h,r.l,r.c,r.v]; return {t:+a[0],o:+a[1],h:+a[2],l:+a[3],c:+a[4],v:+a[5]};}).filter(x=>[x.t,x.o,x.h,x.l,x.c].every(Number.isFinite)).sort((a,b)=>a.t-b.t);}
+
+const GATEWAYS=[
+  u=>u,
+  u=>"https://corsproxy.io/?"+encodeURIComponent(u),
+  u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u)
+];
+async function toobit(path){
+  const url="https://api.toobit.com"+path;
+  let last;
+  for(const g of GATEWAYS){
+    const ctl=new AbortController(); const t=setTimeout(()=>ctl.abort(),7000);
+    try{
+      const r=await fetch(g(url),{signal:ctl.signal,cache:"no-store"});
+      if(!r.ok) throw new Error("HTTP "+r.status);
+      return await r.json();
+    }catch(e){last=e;} finally{clearTimeout(t);}
+  }
+  throw last||new Error("toobit");
+}
+async function tickers(market){
+  if(market==="spot"){
+    const raw=await toobit("/quote/v1/ticker/24hr");
+    return raw.filter(r=>String(r.s).endsWith("USDT") && !String(r.s).includes("-") && !/(3L|3S|5L|5S)$/.test(r.s.replace("USDT","")))
+      .map(r=>({symbol:r.s,base:r.s.replace("USDT",""),price:+r.c,chg:+r.pcp,vol:+r.qv}))
+      .filter(t=>Number.isFinite(t.price)&&t.vol>1000)
+      .sort((a,b)=>b.vol-a.vol);
+  }
+  const raw=await toobit("/quote/v1/contract/ticker/24hr");
+  return raw.filter(r=>String(r.s).endsWith("-SWAP-USDT") && !String(r.s).startsWith("TBV_"))
+    .map(r=>({symbol:r.s,base:r.s.replace("-SWAP-USDT",""),price:+r.c,chg:+r.pcp,vol:+r.qv}))
+    .filter(t=>Number.isFinite(t.price))
+    .sort((a,b)=>b.vol-a.vol);
+}
+async function klines(sym,iv,lim){
+  const raw=await toobit(`/quote/v1/klines?symbol=${encodeURIComponent(sym)}&interval=${iv}&limit=${lim}`);
+  return parseKlines(raw);
+}
+async function maxLev(sym){
+  if(S.market==="spot")return 1;
+  try{
+    const raw=await toobit(`/api/v1/futures/riskLimits?symbol=${encodeURIComponent(sym)}`);
+    return Math.max(1,...raw.map(x=>+x.maxLeverage||0));
+  }catch(e){return 20;}
+}
+
+function build(t,h4,h1,m15,lev){
+  if(h4.length<80||h1.length<150||m15.length<180)return null;
+  const asOf=Date.now();
+  const H=enrich(h4), I=enrich(h1), M=enrich(m15);
+  const pipe=pipeline(H,I,M,asOf);
+  const adx=adxApprox(I.candles);
+  const sc=scoreOf(pipe,M,adx);
+  const cfg=MODE[S.mode];
+  let tier="none";
+  if(pipe.cand!=="wait" && pipe.m15===pipe.cand && sc.score>=cfg.minScore && adx>=cfg.minAdx) tier="setup";
+  else if(pipe.cand!=="wait") tier="watch";
+  const i=M.candles.length-1, row=M.candles[i], atrV=M.atr[i]||row.c*0.01;
+  const pl=sc.side?plan(sc.side,row,atrV):{entry:row.c,sl:row.c,tp1:row.c};
+  const st=sc.side?stretch(sc.side,t.price,pl.entry,atrV):{state:"ready",fillable:false};
+  if(tier==="setup" && !st.fillable) tier="watch";
+  return {
+    ...t, side:sc.side, score:sc.score, tier, reason:pipe.reason, pipe,
+    entry:pl.entry, sl:pl.sl, tp1:pl.tp1, rsi:sc.rsi, adx, atr:atrV,
+    state:st.state, fillable:st.fillable, maxLeverage:lev||20, takerBps:S.market==="spot"?0:TAKER
+  };
+}
+
+let scanning=false, job=null;
+async function scanAll(force){
+  if(scanning)return; scanning=true; $("btnScan").textContent="…";
+  try{
+    const list=await tickers(S.market);
+    job={list, i:0, map:new Map()};
+    S.total=list.length; S.scanned=0; S.done=false;
+    while(job.i<list.length){
+      const batch=list.slice(job.i, job.i+8);
+      await Promise.all(batch.map(async t=>{
+        try{
+          const [h4,h1,m15]=await Promise.all([klines(t.symbol,"4h",90),klines(t.symbol,"1h",160),klines(t.symbol,"15m",200)]);
+          const sig=build(t,h4,h1,m15);
+          if(sig) job.map.set(t.symbol,sig);
+        }catch(e){}
+      }));
+      job.i+=batch.length; S.scanned=job.i;
+      S.signals=[...job.map.values()].sort((a,b)=>(b.tier==="setup")-(a.tier==="setup")||b.score-a.score);
+      S.bySym=Object.fromEntries(S.signals.map(s=>[s.symbol,s]));
+      render();
+    }
+    S.done=true;
+  }catch(e){
+    $("scanStat").textContent="اسکن ناموفق. اتصال یا CORS.";
+  }finally{scanning=false; $("btnScan").textContent="اسکن"; render();}
+}
+
+function page(p){
+  ["sig","mkt","jnl","set"].forEach(x=>{
+    $("page-"+x).classList.toggle("hidden", x!==p);
+    document.querySelector(`.nav [data-p="${x}"]`).classList.toggle("on", x===p);
+  });
+}
+document.querySelectorAll(".nav [data-p]").forEach(b=>b.onclick=()=>page(b.dataset.p));
+document.querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{S.market=b.dataset.m; document.querySelectorAll("[data-m]").forEach(x=>x.classList.toggle("on",x===b)); $("mktLab").textContent=S.market==="spot"?"SPOT":"FUTURES"; save(); scanAll();});
+document.querySelectorAll("[data-mode]").forEach(b=>b.onclick=()=>{S.mode=b.dataset.mode; document.querySelectorAll("[data-mode]").forEach(x=>x.classList.toggle("on",x===b)); save(); render();});
+document.querySelectorAll("[data-side]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-side]").forEach(x=>x.classList.toggle("on",x===b));});
+$("btnScan").onclick=()=>scanAll(true);
+$("q").oninput=()=>renderMarket();
+$("sCap").onchange=()=>{S.capital=+$("sCap").value||50; save();};
+$("sOrd").onchange=()=>{S.orderUsd=+$("sOrd").value||50; save();};
+
+function stateFa(s){return s==="ready"?"آماده ورود":s==="pullback"?"منتظر پولبک":"فاصله گرفته — ورود فوری نه";}
+function card(s){
+  const col=s.side==="long"?"long":s.side==="short"?"short":"";
+  return `<article class="card">
+    <div class="flex"><div><b>${s.base}</b> <span class="${col}">${sideFa(s.side)}</span> <span class="muted">${s.tier==="setup"?"ستاپ":"دیده شود"}</span></div>
+    <div class="mono">${s.score}</div></div>
+    <div class="pills">
+      <div class="pill ${s.pipe.h4==="bull"?"on":s.pipe.h4==="bear"?"bad":""}">4H<br>${s.pipe.h4}</div>
+      <div class="pill ${s.pipe.h1==="long"?"on":s.pipe.h1==="short"?"bad":""}">1H<br>${s.pipe.h1}</div>
+      <div class="pill ${s.pipe.m15==="long"?"on":s.pipe.m15==="short"?"bad":""}">15M<br>${s.pipe.m15}</div>
+      <div class="pill">اهرم<br>≤${s.maxLeverage||"?"}x</div>
+    </div>
+    <p class="muted" style="margin:8px 0 0">${s.reason} · ${stateFa(s.state)}</p>
+    <p class="mono muted">ورود ${fmtP(s.entry)} · SL ${fmtP(s.sl)} · TP ${fmtP(s.tp1)} · now ${fmtP(s.price)}</p>
+    <p class="muted">کارمزد تیکر ${(s.takerBps/100).toFixed(2)}٪ · VIP0</p>
+    <button class="btn ghost" style="margin-top:8px" onclick='addFrom(${JSON.stringify(s.symbol)})'>ثبت در ژورنال</button>
+  </article>`;
+}
+function renderSig(){
+  const min=MODE[S.mode].minScore;
+  const setups=S.signals.filter(s=>s.tier==="setup" && s.score>=min);
+  const watch=S.signals.filter(s=>s.tier!=="setup").slice(0,8);
+  $("sigList").innerHTML = (setups.length?setups.map(card).join(""):`<div class="empty">${S.done?"الان ورود فوری نیست. فیلتر کار می‌کند.":"در حال اسکن…"}</div>`)
+    +(watch.length?`<p class="muted" style="margin-top:16px">دیده شود</p>`+watch.map(card).join(""):"");
+}
+function renderMarket(){
+  const q=($("q").value||"").trim().toLowerCase();
+  const rows=(S.signals||[]).filter(s=>!q||s.base.toLowerCase().includes(q)||s.symbol.toLowerCase().includes(q));
+  $("mktList").innerHTML=rows.map(s=>`<div class="card flex"><div><b>${s.base}</b> <span class="${s.side==="long"?"long":s.side==="short"?"short":"muted"}">${sideFa(s.side)}</span><div class="mono muted">${fmtP(s.price)}</div></div><div class="mono">${s.score}</div></div>`).join("")||`<div class="empty">لیست بعد از اسکن پر می‌شود</div>`;
+}
+function addFrom(symbol){
+  const s=S.signals.find(x=>x.symbol===symbol); if(!s||!s.side)return;
+  const usdt=S.orderUsd||50, qty=usdt/s.entry;
+  S.journal.unshift({id:"t"+Date.now(),symbol:s.symbol,base:s.base,side:s.side,entry:s.entry,sl:s.sl,tp1:s.tp1,qty,usdt,takerBps:s.takerBps||TAKER,source:"signal"});
+  save(); page("jnl"); renderJournal();
+}
+$("jAdd").onclick=()=>{
+  const raw=($("jSym").value||"").trim().toUpperCase();
+  const side=document.querySelector("[data-side].on").dataset.side;
+  const e=+$("jEntry").value, sl=+$("jSl").value, tp=+$("jTp").value, usdt=+$("jUsdt").value||S.orderUsd||50;
+  if(!raw)return alert("نماد");
+  if(!e||!sl)return alert("ورود و حد ضرر لازم است");
+  if(side==="long"&&sl>=e)return alert("حد ضرر لانگ باید پایین‌تر باشد");
+  if(side==="short"&&sl<=e)return alert("حد ضرر شورت باید بالاتر باشد");
+  const symbol=S.market==="spot"? (raw.endsWith("USDT")?raw:raw+"USDT") : (raw.includes("-")?raw:raw+"-SWAP-USDT");
+  const base=raw.replace("-SWAP-USDT","").replace("USDT","");
+  S.journal.unshift({id:"t"+Date.now(),symbol,base,side,entry:e,sl,tp1:tp|| (side==="long"?e+(e-sl)*1.2:e-(sl-e)*1.2),qty:usdt/e,usdt,takerBps:S.market==="spot"?0:TAKER,source:"manual"});
+  save(); renderJournal();
+};
+function pxOf(t){return S.bySym[t.symbol]?.price;}
+function renderJournal(){
+  const open=S.journal.filter(t=>!t.closedAt), closed=S.journal.filter(t=>t.closedAt);
+  $("jOpen").innerHTML=open.map(t=>{
+    const px=pxOf(t); const bps=(t.takerBps??TAKER)/10000;
+    const pnl=px==null?null: ((t.side==="long"?px-t.entry:t.entry-px)*t.qty) - (t.qty*t.entry*bps + t.qty*px*bps);
+    const pct=px==null?null:(t.side==="long"?(px-t.entry)/t.entry:(t.entry-px)/t.entry);
+    const sig=S.bySym[t.symbol];
+    return `<article class="card">
+      <div class="flex"><div><b>${t.base}</b> <span class="${t.side}">${sideFa(t.side)}</span> <span class="muted">${t.source==="manual"?"دستی":"سیگنال"}</span></div>
+      <div class="mono ${pnl!=null&&pnl>=0?"long":"short"}">${pnl==null?"—":fmtPnl(pnl)+" ("+fmtPct(pct)+")"}</div></div>
+      <p class="mono muted">${fmtP(t.entry)} → SL ${fmtP(t.sl)} · TP ${fmtP(t.tp1)}${px?` · now ${fmtP(px)}`:""}</p>
+      ${sig?`<p class="muted">${sig.reason}</p>`:""}
+      <div class="row">
+        <button class="btn ghost" onclick='editTrade("${t.id}")'>ویرایش</button>
+        <button class="btn ghost" onclick='closeTrade("${t.id}")'>بستن</button>
+        <button class="btn danger" onclick='delTrade("${t.id}")'>حذف</button>
+      </div>
+    </article>`;
+  }).join("")||`<div class="empty">معامله باز نیست</div>`;
+  $("jClosed").innerHTML=closed.length? closed.map(t=>`<div class="card flex"><span>${t.base} ${sideFa(t.side)}</span><span class="mono ${t.pnl>=0?"long":"short"}">${fmtPnl(t.pnl||0)}</span></div>`).join(""): "";
+}
+window.closeTrade=id=>{
+  S.journal=S.journal.map(t=>{
+    if(t.id!==id||t.closedAt)return t;
+    const px=pxOf(t)??t.entry; const bps=(t.takerBps??TAKER)/10000;
+    const pnl=((t.side==="long"?px-t.entry:t.entry-px)*t.qty)-(t.qty*t.entry*bps+t.qty*px*bps);
+    return {...t,closedAt:Date.now(),closePrice:px,pnl};
+  }); save(); renderJournal();
+};
+window.delTrade=id=>{S.journal=S.journal.filter(t=>t.id!==id); save(); renderJournal();};
+window.editTrade=id=>{
+  const t=S.journal.find(x=>x.id===id); if(!t)return;
+  const e=prompt("ورود", t.entry); if(e==null)return;
+  const sl=prompt("حد ضرر", t.sl); if(sl==null)return;
+  const tp=prompt("هدف", t.tp1); if(tp==null)return;
+  const usdt=prompt("حجم تتر", t.usdt|| (t.qty*t.entry)); if(usdt==null)return;
+  t.entry=+e; t.sl=+sl; t.tp1=+tp; t.usdt=+usdt; t.qty=t.usdt/t.entry; save(); renderJournal();
+};
+function render(){
+  $("mktLab").textContent=S.market==="spot"?"SPOT":"FUTURES";
+  $("sCap").value=S.capital; $("sOrd").value=S.orderUsd;
+  const pct=S.total?Math.round(S.scanned/S.total*100):0;
+  $("bar").style.width=pct+"%";
+  $("scanStat").textContent=S.done? (S.total? S.total+" نماد بررسی شد":"آماده اسکن") : `در حال بررسی کل بازار · ${S.scanned} از ${S.total}`;
+  renderSig(); renderMarket(); renderJournal();
+}
+render();
+scanAll();
+</script>
+</body>
+</html>

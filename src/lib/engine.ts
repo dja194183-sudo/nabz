@@ -582,7 +582,7 @@ export function buildSignal(opts: {
   m5?: Candle[] | null;
   funding: number | null;
   mode: Mode;
-  maxLeverage?: number;
+  maxLeverage?: number | null;
   makerBps?: number;
   takerBps?: number;
 }): Signal | null {
@@ -716,7 +716,7 @@ export function buildSignal(opts: {
     exitAlert,
     expansion,
     candles: frames.m15.candles.slice(-48),
-    maxLeverage: opts.maxLeverage ?? (opts.market === "spot" ? 1 : 20),
+    maxLeverage: opts.maxLeverage ?? (opts.market === "spot" ? 1 : null),
     makerBps: opts.makerBps ?? (opts.market === "spot" ? 0 : 2),
     takerBps: opts.takerBps ?? (opts.market === "spot" ? 0 : 6),
   };

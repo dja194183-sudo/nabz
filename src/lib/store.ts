@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { AppSettings, ChatMessage, PaperTrade, Side } from "./types";
+import type { AppSettings, ChatMessage, PaperTrade, ScanResult, Side } from "./types";
 
 type AppState = {
   settings: AppSettings;
@@ -8,6 +8,8 @@ type AppState = {
   journal: PaperTrade[];
   chat: ChatMessage[];
   wrFilter: boolean;
+  vaultId: string;
+  lastScan: ScanResult | null;
   setSettings: (patch: Partial<AppSettings>) => void;
   toggleWatch: (symbol: string) => void;
   setWrFilter: (on: boolean) => void;
@@ -18,7 +20,56 @@ type AppState = {
   importJournal: (trades: PaperTrade[]) => number;
   pushChat: (msg: ChatMessage) => void;
   clearChat: () => void;
+  setLastScan: (scan: ScanResult | null) => void;
+  setVaultId: (id: string) => void;
+  replaceVault: (data: {
+    journal?: PaperTrade[];
+    watchlist?: string[];
+    lastScan?: ScanResult | null;
+  }) => void;
 };
+
+const BACKUP_KEY = "nabz-journal-backup";
+
+function readBackup(): PaperTrade[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(BACKUP_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { journal?: PaperTrade[] };
+    return Array.isArray(parsed.journal) ? parsed.journal : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeBackup(journal: PaperTrade[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(
+      BACKUP_KEY,
+      JSON.stringify({ v: 1, at: Date.now(), journal }),
+    );
+  } catch {
+    /* quota */
+  }
+}
+
+function newVaultId() {
+  const n = Math.random().toString(36).slice(2, 10).toUpperCase();
+  return `NABZ-${n}`;
+}
+
+function slimScan(scan: ScanResult): ScanResult {
+  return {
+    ...scan,
+    signals: scan.signals.slice(0, 40).map((s) => ({
+      ...s,
+      candles: [],
+      spark: (s.spark ?? []).slice(-12),
+    })),
+  };
+}
 
 const defaults: AppSettings = {
   timeframe: "15m",
@@ -64,6 +115,8 @@ export const useAppStore = create<AppState>()(
       journal: [],
       chat: [],
       wrFilter: true,
+      vaultId: newVaultId(),
+      lastScan: null,
       setSettings: (patch) =>
         set({ settings: { ...get().settings, ...patch } }),
       toggleWatch: (symbol) => {
@@ -75,56 +128,83 @@ export const useAppStore = create<AppState>()(
         });
       },
       setWrFilter: (on) => set({ wrFilter: on }),
-      addTrade: (trade) =>
-        set({ journal: [trade, ...get().journal].slice(0, 80) }),
-      updateTrade: (id, patch) =>
-        set({
-          journal: get().journal.map((t) =>
-            t.id === id && !t.closedAt ? { ...t, ...patch, id: t.id } : t,
-          ),
-        }),
-      closeTrade: (id, closePrice) => {
-        set({
-          journal: get().journal.map((t) => {
-            if (t.id !== id || t.closedAt) return t;
-            const { result, r } = closeResult(
-              t.side,
-              t.entry,
-              t.sl,
-              t.tp1,
-              closePrice,
-            );
-            const bps = (t.takerBps ?? 6) / 10_000;
-            const gross =
-              t.side === "long"
-                ? (closePrice - t.entry) * t.qty
-                : (t.entry - closePrice) * t.qty;
-            const fee = t.qty * t.entry * bps + t.qty * closePrice * bps;
-            return {
-              ...t,
-              closedAt: Date.now(),
-              closePrice,
-              result,
-              pnlUsd: gross - fee,
-            };
-          }),
-        });
+      addTrade: (trade) => {
+        const journal = [trade, ...get().journal].slice(0, 80);
+        writeBackup(journal);
+        set({ journal });
       },
-      removeTrade: (id) =>
-        set({ journal: get().journal.filter((t) => t.id !== id) }),
+      updateTrade: (id, patch) => {
+        const journal = get().journal.map((t) =>
+          t.id === id ? { ...t, ...patch, id: t.id } : t,
+        );
+        writeBackup(journal);
+        set({ journal });
+      },
+      closeTrade: (id, closePrice) => {
+        const journal = get().journal.map((t) => {
+          if (t.id !== id || t.closedAt) return t;
+          const { result } = closeResult(t.side, t.entry, t.sl, t.tp1, closePrice);
+          const bps = (t.takerBps ?? 6) / 10_000;
+          const gross =
+            t.side === "long"
+              ? (closePrice - t.entry) * t.qty
+              : (t.entry - closePrice) * t.qty;
+          const fee = t.qty * t.entry * bps + t.qty * closePrice * bps;
+          return {
+            ...t,
+            closedAt: Date.now(),
+            closePrice,
+            result,
+            pnlUsd: gross - fee,
+          };
+        });
+        writeBackup(journal);
+        set({ journal });
+      },
+      removeTrade: (id) => {
+        const journal = get().journal.filter((t) => t.id !== id);
+        writeBackup(journal);
+        set({ journal });
+      },
       importJournal: (trades) => {
         const cur = get().journal;
         const ids = new Set(cur.map((t) => t.id));
         const extra = trades.filter((t) => t?.id && !ids.has(t.id));
-        set({ journal: [...extra, ...cur].slice(0, 120) });
+        const journal = [...extra, ...cur].slice(0, 120);
+        writeBackup(journal);
+        set({ journal });
         return extra.length;
       },
       pushChat: (msg) =>
         set({ chat: [...get().chat, msg].slice(-60) }),
       clearChat: () => set({ chat: [] }),
+      setLastScan: (scan) => set({ lastScan: scan ? slimScan(scan) : null }),
+      setVaultId: (id) => set({ vaultId: id.toUpperCase().slice(0, 24) }),
+      replaceVault: (data) => {
+        const journal = data.journal ?? get().journal;
+        writeBackup(journal);
+        set({
+          journal,
+          watchlist: data.watchlist ?? get().watchlist,
+          lastScan: data.lastScan ?? get().lastScan,
+        });
+      },
     }),
     {
       name: "nabz-store",
+      partialize: (state) => ({
+        settings: {
+          ...state.settings,
+          apiKey: "",
+          apiSecret: "",
+        },
+        watchlist: state.watchlist,
+        journal: state.journal,
+        chat: state.chat,
+        wrFilter: state.wrFilter,
+        vaultId: state.vaultId,
+        lastScan: state.lastScan,
+      }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<AppState>;
         const next = {
@@ -137,12 +217,19 @@ export const useAppStore = create<AppState>()(
         };
         if (next.capital === 1000) next.capital = 50;
         if (next.orderUsd == null) next.orderUsd = 50;
+        next.apiKey = "";
+        next.apiSecret = "";
+        const backup = (!p.journal || p.journal.length === 0) ? readBackup() : [];
+        const journal =
+          p.journal && p.journal.length > 0 ? p.journal : backup.length ? backup : current.journal;
         return {
           ...current,
           ...p,
-          journal: p.journal ?? current.journal,
+          journal,
           chat: p.chat ?? current.chat,
           settings: next,
+          vaultId: p.vaultId && p.vaultId.length >= 8 ? p.vaultId : current.vaultId,
+          lastScan: p.lastScan ?? current.lastScan,
         };
       },
     },

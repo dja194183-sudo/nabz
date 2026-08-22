@@ -108,7 +108,7 @@ export type Signal = {
   exitAlert: ExitAlert;
   expansion: Expansion;
   candles: Candle[];
-  maxLeverage: number;
+  maxLeverage: number | null;
   makerBps: number;
   takerBps: number;
 };

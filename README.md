@@ -1,29 +1,20 @@
-# NABZ v1.13
+# NABZ v1.17
 
-Toobit USDT-M futures / spot signal app (TanStack Start + React, RTL Persian).
+Toobit USDT-M futures signal PWA (4H → 1H → 15M → 5M). Persian RTL.
 
-**Not financial advice.** Backtest win rate is historical. Fees are Toobit VIP0 public table (futures maker 0.02% / taker 0.06%, spot 0%), not the user VIP tier. Max leverage per symbol comes from `GET /api/v1/futures/riskLimits`.
+**Download zip:** [nabz-v1.17.zip](https://github.com/dja194183-sudo/nabz/releases/download/v1.17/nabz-v1.17.zip)
 
-## Read first (for code review)
+Also in repo root: `nabz-v1.17.zip`
 
-| File | What |
-|---|---|
-| `src/lib/engine.ts` | 4H→1H→15M→5M pipeline, confluence score, `backtestFrames` |
-| `src/lib/risk.ts` | stretched/pullback entry, emergency exit, expansion |
-| `src/lib/server/lock.ts` | 60s entry lock; trail SL only in favor |
-| `src/lib/server/market.ts` | progressive full-market scanner |
-| `src/lib/server/toobit.ts` | Toobit public API + riskLimits + VIP0 fees |
-| `src/lib/server/desk-chat.ts` | AI desk (must answer from data, never “go check the app”) |
-| `src/routes/journal.tsx` | journal, edit open trades, PnL 6dp + %, USDT size, fees |
-| `src/routes/chat.tsx` | chat UI + desk context |
-| `src/lib/store.ts` | persist |
-| `src/lib/types.ts` | Signal / PaperTrade |
+Core files for review:
+- `src/lib/engine.ts` — confluence + backtest
+- `src/lib/risk.ts` — stretch, trailing SL, emergency exit
+- `src/lib/server/lock.ts` — 60s entry lock
+- `src/lib/server/market.ts` — scanner / pair detail
+- `src/lib/server/toobit.ts` — Toobit public API
+- `src/lib/server/toobit-trade.ts` — optional live orders
+- `src/lib/server/desk-chat.ts` + `src/lib/desk-local.ts` — local desk (no Grok model)
+- `src/routes/journal.tsx` — paper journal / PnL
+- `src/lib/store.ts` — local persist + vault id
 
-## Rules of the system
-
-- Direction from 4H + 1H, setup from 15M, trigger from 5M
-- Entry holds ≥60s; if price stretches away, do not chase
-- Emergency exit is independent of SL/TP
-- Order size is USDT notional, not %
-
-Standalone browser file: `NABZ-app.html`
+Not investment advice.

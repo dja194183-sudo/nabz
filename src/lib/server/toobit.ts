@@ -287,14 +287,14 @@ export async function fetchLongShort(symbol: string) {
 }
 
 export type ContractSpec = {
-  maxLeverage: number;
+  maxLeverage: number | null;
   makerBps: number;
   takerBps: number;
 };
 
 /** Toobit VIP0 published schedule (toobit.com/support/fee-rate). */
 export const FUTURES_FEES: ContractSpec = {
-  maxLeverage: 20,
+  maxLeverage: null,
   makerBps: 2,
   takerBps: 6,
 };
@@ -312,26 +312,25 @@ export async function fetchContractSpec(
 ): Promise<ContractSpec> {
   if (market === "spot") return SPOT_FEES;
   const hit = specCache.get(symbol);
-  if (hit && Date.now() - hit.at < 12 * 60 * 60_000) return hit.spec;
+  if (hit && Date.now() - hit.at < 12 * 60 * 60_000 && hit.spec.maxLeverage != null) {
+    return hit.spec;
+  }
   try {
     const raw = await toobit<Array<{ level: number; maxLeverage: number }>>(
       `/api/v1/futures/riskLimits?symbol=${encodeURIComponent(symbol)}`,
     );
-    const maxLeverage = Math.max(
-      1,
-      ...raw.map((r) => Number(r.maxLeverage) || 0),
-    );
+    const maxLeverage = Array.isArray(raw)
+      ? Math.max(0, ...raw.map((r) => Number(r.maxLeverage) || 0))
+      : 0;
     const spec: ContractSpec = {
-      maxLeverage: Number.isFinite(maxLeverage) && maxLeverage > 0 ? maxLeverage : 20,
+      maxLeverage: maxLeverage > 0 ? maxLeverage : null,
       makerBps: FUTURES_FEES.makerBps,
       takerBps: FUTURES_FEES.takerBps,
     };
-    specCache.set(symbol, { at: Date.now(), spec });
+    if (spec.maxLeverage != null) specCache.set(symbol, { at: Date.now(), spec });
     return spec;
   } catch {
-    const spec = { ...FUTURES_FEES };
-    specCache.set(symbol, { at: Date.now(), spec });
-    return spec;
+    return { ...FUTURES_FEES };
   }
 }
 
