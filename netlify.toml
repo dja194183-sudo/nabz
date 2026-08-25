@@ -1,0 +1,10 @@
+# NABZ — Netlify + Nitro (TanStack Start)
+# Keep vite.config.ts preset as env override so Vercel/Liara presets stay intact.
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = ".netlify/functions-internal"
+
+[build.environment]
+  NODE_VERSION = "22"
+  NITRO_PRESET = "netlify"
