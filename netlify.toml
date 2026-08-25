@@ -8,3 +8,10 @@
 [build.environment]
   NODE_VERSION = "22"
   NITRO_PRESET = "netlify"
+
+# SSR entry: Nitro emits the server function; SPA/static files in dist still win when present.
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/server"
+  status = 200
+  force = false
